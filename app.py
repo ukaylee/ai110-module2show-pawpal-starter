@@ -65,7 +65,7 @@ st.subheader("3. Tasks")
 with st.form("task_form"):
     pet_names = [p.name for p in owner.pets]
     target_pet_name = st.selectbox("Assign to pet", pet_names)
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         task_desc = st.text_input("Description", value="Morning walk")
     with col2:
@@ -76,6 +76,8 @@ with st.form("task_form"):
         frequency = st.selectbox("Frequency", ["daily", "weekly", "monthly", "as needed"])
     with col5:
         preferred_time = st.selectbox("Time slot", ["", "morning", "afternoon", "evening"])
+    with col6:
+        start_time = st.text_input("Start time (HH:MM)", value="", placeholder="08:00")
     add_task = st.form_submit_button("Add task")
     if add_task:
         target_pet = next(p for p in owner.pets if p.name == target_pet_name)
@@ -85,20 +87,35 @@ with st.form("task_form"):
             priority=priority,
             frequency=frequency,
             preferred_time=preferred_time,
+            start_time=start_time.strip(),
         )
         target_pet.add_task(new_task)   # <-- Pet.add_task() called here
         st.success(f"Task '{task_desc}' added to {target_pet_name}!")
 
-# Show all tasks grouped by pet  →  uses owner.get_tasks_by_pet()
+# Show all tasks grouped by pet, sorted by start_time via Scheduler.sort_by_time()
+_display_scheduler = Scheduler(owner=owner, available_minutes=9999)
 all_tasks = owner.get_tasks_by_pet()
 for pet_name, tasks in all_tasks.items():
     if tasks:
         st.markdown(f"**{pet_name}**")
+        sorted_tasks = _display_scheduler.sort_by_time(tasks)
+
+        # Conflict warnings for this pet's tasks
+        conflicts = _display_scheduler.detect_conflicts(sorted_tasks)
+        for warning in conflicts:
+            st.warning(warning)
+
         st.table([
-            {"Description": t.description, "Duration": t.duration_minutes,
-             "Priority": t.priority, "Frequency": t.frequency,
-             "Time": t.preferred_time or "any", "Done": t.completed}
-            for t in tasks
+            {
+                "Description": t.description,
+                "Start": t.start_time or "—",
+                "Duration (min)": t.duration_minutes,
+                "Priority": t.priority,
+                "Frequency": t.frequency,
+                "Time slot": t.preferred_time or "any",
+                "Done": "✓" if t.completed else "",
+            }
+            for t in sorted_tasks
         ])
 
 if not owner.get_all_tasks():
@@ -128,15 +145,28 @@ if st.button("Generate schedule"):
     )
     plan = scheduler.build_daily_plan()
 
-    st.success(f"Today's plan for {owner.name}")
-    st.markdown(f"**Time used:** {plan['minutes_used']} / {available_minutes} min  |  **Remaining:** {plan['minutes_remaining']} min")
+    st.success(f"Today's plan for {owner.name} — {plan['minutes_used']} / {available_minutes} min used, {plan['minutes_remaining']} min remaining")
+
+    # Conflict warnings across all chosen tasks
+    conflicts = scheduler.detect_conflicts(plan["chosen"])
+    for warning in conflicts:
+        st.warning(warning)
 
     st.markdown("### Scheduled")
     if plan["chosen"]:
+        # Display chosen tasks sorted chronologically by start_time
+        sorted_chosen = scheduler.sort_by_time(plan["chosen"])
         st.table([
-            {"Pet": t.pet.name, "Task": t.description, "Time slot": t.preferred_time or "any",
-             "Duration (min)": t.duration_minutes, "Priority": t.priority}
-            for t in plan["chosen"]
+            {
+                "Pet": t.pet.name,
+                "Task": t.description,
+                "Start": t.start_time or "—",
+                "Time slot": t.preferred_time or "any",
+                "Duration (min)": t.duration_minutes,
+                "Priority": t.priority,
+                "Frequency": t.frequency,
+            }
+            for t in sorted_chosen
         ])
     else:
         st.info("No tasks could be scheduled.")
@@ -144,6 +174,6 @@ if st.button("Generate schedule"):
     if plan["skipped"]:
         st.markdown("### Skipped")
         st.table([
-            {"Pet": s["task"].pet.name, "Task": s["task"].description, "Reason": s["reason"]}
+            {"Pet": s["task"].pet.name if s["task"].pet else "—", "Task": s["task"].description, "Reason": s["reason"]}
             for s in plan["skipped"]
         ])

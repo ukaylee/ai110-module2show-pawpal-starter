@@ -22,6 +22,22 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## Demo
+
+![PawPal+ demo screenshot](demo_screenshot.png)
+
+## Features
+
+- **Greedy daily scheduling** — `Scheduler.build_daily_plan()` sorts all pending tasks by priority, frequency, and duration, then greedily selects tasks until the available time or task cap is reached.
+- **Priority & frequency ordering** — high-priority daily tasks are always considered first; low-priority as-needed tasks sort last, ensuring the most important care happens within constrained windows.
+- **Chronological sorting** — `Scheduler.sort_by_time()` orders tasks by `start_time` (HH:MM) so the final schedule reads top-to-bottom through the day. Tasks with no start time are placed at the end.
+- **Conflict detection** — `Scheduler.detect_conflicts()` checks every pair of timed tasks for overlapping windows and surfaces a `st.warning()` for each conflict, without throwing an error.
+- **Daily recurrence** — when a `daily` or `weekly` task is marked complete, `Task.mark_complete()` automatically queues a fresh pending copy on the pet, so recurring care never falls off the list.
+- **Blackout times** — the scheduler filters out tasks whose preferred time slot (morning / afternoon / evening) is blocked by the owner, with a skip reason recorded in the plan.
+- **Multi-pet support** — an `Owner` aggregates multiple `Pet` objects; `get_all_tasks()` and `get_tasks_by_pet()` flatten or group tasks across the whole household.
+- **Single-pet ownership enforcement** — `Pet.add_task()` raises a `ValueError` if a task is added to a second pet, preventing accidental data sharing between pets.
+- **Task filtering** — `Scheduler.filter_tasks()` narrows the task list by completion status, pet name, or both, making it easy to show only what's pending or done.
+
 ## Getting started
 
 ### Setup
