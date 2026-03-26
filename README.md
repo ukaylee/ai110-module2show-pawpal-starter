@@ -41,3 +41,23 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
+
+## Testing PawPal+
+
+Run the test suite with:
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+What the tests cover:
+
+| Area                   | Tests                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Sorting**            | Tasks are returned in chronological order by `start_time`; tasks with no `start_time` sort to the end |
+| **Recurrence**         | Completing a `daily` task automatically queues a fresh pending copy; `monthly` tasks do not re-queue  |
+| **Conflict detection** | Overlapping time windows are flagged with a warning; back-to-back and untimed tasks are not flagged   |
+
+Confidence Level: 4/5
+
+Core scheduling behaviors — sorting, recurrence, and conflict detection — are well-covered and all 10 tests pass. A full 5-star rating would require additional coverage of `build_daily_plan` edge cases (zero available minutes, `max_tasks` cap) and integration-level tests through the Streamlit UI.
