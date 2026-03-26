@@ -59,6 +59,16 @@ classDiagram
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
+Yes. I added a method to the UserConstraint class that made it check if the task's preferred time is in the owner's blackout times and if it exceeds the available time. I made this change to accomodate the preferences so that the scheduler could work around them.
+
+But then I realized that on the website in Phase 2, it said I should have these core classes:
+Task: Represents a single activity (description, time, frequency, completion status).
+Pet: Stores pet details and a list of tasks.
+Owner: Manages multiple pets and provides access to all their tasks.
+Scheduler: The "Brain" that retrieves, organizes, and manages tasks across pets.
+
+So I changed my design to match this.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
