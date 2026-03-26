@@ -7,6 +7,53 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+A user should be able to view all tasks, add tasks, and add constraints.
+
+Classes:
+Owner: Has pets
+Pet: One single pet, holds data about it and what tasks correspond to it
+Task: Assigned to a pet, has information about the task
+UserConstraint: Owner's limitations
+
+```mermaid
+classDiagram
+    class Owner {
+        +String name
+        +Pet pet
+        +UserConstraint constraint
+    }
+
+    class Pet {
+        +String name
+        +String species
+        +Int age
+        +List~Task~ tasks
+        +add_task(task: Task)
+        +get_tasks() List~Task~
+    }
+
+    class Task {
+        +String title
+        +Int duration_minutes
+        +String priority
+        +String preferred_time
+        +Pet pet
+    }
+
+    class UserConstraint {
+        +Int available_minutes
+        +List~String~ blackout_times
+        +Int max_tasks
+        +allows(task: Task) bool
+    }
+
+    Owner "1" --> "1" Pet : owns
+    Owner "1" --> "1" UserConstraint : has
+    Pet "1" --> "0..*" Task : owns
+    Task "0..*" --> "1" Pet : assigned to
+    UserConstraint "1" --> "0..*" Task : filters
+```
+
 **b. Design changes**
 
 - Did your design change during implementation?
