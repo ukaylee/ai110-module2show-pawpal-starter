@@ -82,6 +82,7 @@ So I changed my design to match this.
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
+  The scheduler picks tasks in sorted order (priority > frequency > duration) so it might waste time by doing a long task first when it could have done two short tasks in the same time. However, I think this is reasonable because the owner would probably want to get the most important tasks done first, and if they have time left over, they can do the less important ones.
 
 ---
 

@@ -1,14 +1,14 @@
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
-
 """Core domain models and scheduling logic for PawPal+.
 
 This module defines:
-- task and pet entities,
-- owner-level aggregation across pets,
-- and a scheduler that builds a constrained daily plan.
+- Task and Pet entities,
+- Owner-level aggregation across pets,
+- and a Scheduler that builds a constrained daily plan.
 """
+
+from __future__ import annotations
+from dataclasses import dataclass, field, replace
+from typing import Optional
 
 VALID_PRIORITIES = {"low", "medium", "high"}
 VALID_FREQUENCIES = {"daily", "weekly", "monthly", "as needed"}
@@ -27,6 +27,7 @@ class Task:
     priority: str               # "low", "medium", "high"
     frequency: str              # "daily", "weekly", "monthly", "as needed"
     preferred_time: str = ""    # "morning", "afternoon", "evening", or ""
+    start_time: str = ""        # "HH:MM" format, e.g. "08:30"
     completed: bool = False
     pet: Optional[Pet] = None   # back-reference set when added to a Pet
 
@@ -42,8 +43,10 @@ class Task:
             raise ValueError(f"preferred_time must be one of {VALID_TIMES}")
 
     def mark_complete(self) -> None:
-        """Mark the task as completed."""
+        """Mark the task as completed and queue a fresh copy for daily/weekly tasks."""
         self.completed = True
+        if self.frequency in ("daily", "weekly") and self.pet is not None:
+            self.pet.add_task(replace(self, completed=False, pet=None))
 
 
 @dataclass
@@ -112,7 +115,16 @@ class Scheduler:
         return [t for t in self.owner.get_all_tasks() if not t.completed]
 
     def _allows(self, task: Task) -> tuple[bool, str]:
-        """Returns (allowed, reason_if_not)."""
+        """Check whether a task passes the scheduler's constraints.
+
+        Args:
+            task: The task to evaluate.
+
+        Returns:
+            A tuple of (allowed, reason) where allowed is True if the task
+            can be scheduled, and reason is an empty string or a short
+            explanation of why it was rejected.
+        """
         if task.preferred_time in self.blackout_times:
             return False, "time is blacked out"
         if task.duration_minutes > self.available_minutes:
@@ -120,7 +132,12 @@ class Scheduler:
         return True, ""
 
     def _sort_key(self, task: Task) -> tuple:
-        """Sort by priority, then frequency urgency, then shortest duration first."""
+        """Return a sort key that orders tasks by priority, frequency, then duration.
+
+        High-priority daily tasks sort first; low-priority as-needed tasks sort
+        last. Within the same priority and frequency, shorter tasks are preferred
+        so the schedule fits more items into the available window.
+        """
         return (
             PRIORITY_ORDER[task.priority],
             FREQUENCY_ORDER[task.frequency],
@@ -128,7 +145,19 @@ class Scheduler:
         )
 
     def build_daily_plan(self) -> dict:
-        """Select tasks that fit constraints and return chosen/skipped breakdown."""
+        """Select tasks that fit within the owner's constraints for today.
+
+        Uses a greedy algorithm: tasks are sorted by priority and frequency,
+        then accepted one-by-one until time or task limits are reached.
+        Chosen tasks are re-ordered by preferred time slot before returning.
+
+        Returns:
+            A dict with keys:
+                chosen          - list of Task objects scheduled for today
+                skipped         - list of dicts with 'task' and 'reason' keys
+                minutes_used    - total duration of chosen tasks
+                minutes_remaining - available_minutes minus minutes_used
+        """
         chosen = []
         skipped = []
         minutes_used = 0
@@ -158,7 +187,15 @@ class Scheduler:
         }
 
     def explain_plan(self, plan: dict) -> str:
-        """Generate a human-readable explanation of scheduled and skipped tasks."""
+        """Format a plan dict as a human-readable schedule summary.
+
+        Args:
+            plan: The dict returned by build_daily_plan().
+
+        Returns:
+            A multi-line string listing scheduled tasks by time slot followed
+            by any skipped tasks with their rejection reasons.
+        """
         lines = [f"Daily plan for {self.owner.name} ({plan['minutes_used']} / {self.available_minutes} min used)\n"]
 
         if plan["chosen"]:
@@ -180,6 +217,65 @@ class Scheduler:
                 lines.append(f"  - {t.description}: {entry['reason']}")
 
         return "\n".join(lines)
+
+    def filter_tasks(
+        self,
+        tasks: list[Task] = None,
+        completed: bool = None,
+        pet_name: str = None,
+    ) -> list[Task]:
+        """Filter tasks by completion status and/or pet name.
+
+        Args:
+            tasks: Task list to filter. Defaults to all owner tasks.
+            completed: If True, return only completed tasks. If False, only pending.
+                       If None, both are included.
+            pet_name: If provided, return only tasks belonging to that pet.
+        """
+        results = tasks if tasks is not None else self.owner.get_all_tasks()
+        if completed is not None:
+            results = [t for t in results if t.completed == completed]
+        if pet_name is not None:
+            results = [t for t in results if t.pet and t.pet.name == pet_name]
+        return results
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks sorted by start_time in ascending 'HH:MM' order.
+        Tasks with no start_time are placed at the end.
+        """
+        return sorted(tasks, key=lambda task: task.start_time if task.start_time else "99:99")
+
+    def detect_conflicts(self, tasks: list[Task]) -> list[str]:
+        """Return warning messages for any tasks whose time windows overlap.
+
+        Strategy: convert each task's start_time to total minutes, then check
+        every pair for overlap using (start < other_end and other_start < end).
+        Tasks with no start_time set are skipped. Returns warnings, never raises.
+        """
+        def to_minutes(hhmm: str) -> int | None:
+            if not hhmm:
+                return None
+            h, m = hhmm.split(":")
+            return int(h) * 60 + int(m)
+
+        timed = [(t, to_minutes(t.start_time)) for t in tasks if to_minutes(t.start_time) is not None]
+        warnings = []
+
+        for i in range(len(timed)):
+            for j in range(i + 1, len(timed)):
+                a, a_start = timed[i]
+                b, b_start = timed[j]
+                a_end = a_start + a.duration_minutes
+                b_end = b_start + b.duration_minutes
+                if a_start < b_end and b_start < a_end:
+                    a_pet = a.pet.name if a.pet else "unknown"
+                    b_pet = b.pet.name if b.pet else "unknown"
+                    warnings.append(
+                        f"WARNING: '{a.description}' ({a_pet}, {a.start_time}-{a_end // 60:02d}:{a_end % 60:02d}) "
+                        f"overlaps with '{b.description}' ({b_pet}, {b.start_time}-{b_end // 60:02d}:{b_end % 60:02d})"
+                    )
+
+        return warnings
 
     def mark_chosen_complete(self, plan: dict) -> None:
         """Mark all chosen tasks as completed after running the plan."""
